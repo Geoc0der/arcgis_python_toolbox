@@ -1,6 +1,8 @@
 '''
 Tässä koodi, jonka tavoite on tehdä yhdelle lähtö- ja syötetasolle summarize within-analyysi ja sen jälkeen laskea
 koodisarakkeeseen koodi annettujen parametrien perusteella.
+
+Koodia on tarkoitus käyttää pohjana viimeistellymmän työkalun kehittämisessä
 '''
 
 import arcpy
