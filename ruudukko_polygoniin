@@ -1,0 +1,183 @@
+import arcpy
+
+class Toolbox(object):
+    def __init__(self):
+        self.label = "Tähän label"
+        self.alias = "Työkalulla luodaan annetun polygonmuotoisen tason laajuinen halutun kokoinen neliömuotoinen ruudukko. Työkalun tehnyt Lari Jaakkola. 27.5.2025"
+        # Alle listataan kaikki toolboxin työkalut
+        self.tools = [Tool]
+
+class Tool(object):
+    def __init__(self):
+        self.label = "Ruudukon luonti polygonin sisään"
+        self.description = ""
+        self.canRunInBackground = False
+
+    def getParameterInfo(self):
+        # Parametrien määrittely
+        params = [
+            arcpy.Parameter(
+                displayName="Ruudukon laajuus",
+                name="ruudukon_laajuus",
+                datatype="GPFeatureLayer",
+                parameterType="Required",
+                direction="Input"
+            ),
+            arcpy.Parameter(
+                displayName="Ruudun koko (metriä)",
+                name="ruutukoko",
+                datatype="GPDouble",
+                parameterType="Required",
+                direction="Input"
+            ),
+            arcpy.Parameter(
+                displayName="Malliruudukko, jota käytetään luotavan ruudukon asemointiin",
+                name="rtk_input_polygon",
+                datatype="GPFeatureLayer",
+                parameterType="Required",
+                direction="Input"
+            ),
+            arcpy.Parameter(
+                displayName="Tallennettava vektoritaso",
+                name="output",
+                datatype="DEFeatureClass",
+                parameterType="Required",
+                direction="Output"
+            )
+        ]
+        return params
+
+    def isLicensed(self):
+        """Työkalun lisensointi."""
+        return True
+
+    def updateParameters(self, parameters):
+        """Modify the values and properties of parameters before internal 
+        validation is performed. This method is called whenever a parameter 
+        has been changed."""
+        return
+
+    def updateMessages(self, parameters):
+        """Modify the messages created by internal validation for each tool
+        parameter. This method is called after internal validation."""
+        return
+
+    def execute(self, parameters, messages):
+        # Työkalun lähdekoodi
+        ruututietokanta = parameters[2].valueAsText
+        laajuus_polygon = parameters[0].valueAsText
+        ruutukoko = parameters[1].valueAsText
+        valmis_ruudukko = parameters[3].valueAsText
+        
+        # Lasketaan laajuus_polygon-tason minimi- ja maksimikoordinaatit
+        arcpy.management.CalculateGeometryAttributes(
+            laajuus_polygon, 
+            [['min_x', 'EXTENT_MIN_X'], ['min_y', 'EXTENT_MIN_Y'], 
+             ['max_x', 'EXTENT_MAX_X'], ['max_y', 'EXTENT_MAX_Y']], 
+            'METERS'
+        )
+        
+        # Alustetaan minimi- ja maksimikoordinaattien muuttujat
+        min_x, min_y, max_x, max_y = None, None, None, None
+        
+        # Haetaan minimi- ja maksimikoordinaatit
+        with arcpy.da.SearchCursor(laajuus_polygon, ['min_x', 'min_y', 'max_x', 'max_y']) as cursor:
+            for row in cursor:
+                min_x = row[0]
+                min_y = row[1]
+                max_x = row[2]
+                max_y = row[3]
+        
+        # Tehdään uusi bounding box minimi- ja maksimiarvoista, jota käytetään myöhemmin valinnan tekemiseen ruututietokannasta
+        # Määritellään polygonin minimi- ja maksimikoordinaatit
+        coordinates = [(min_x, min_y), (min_x, max_y), 
+                       (max_x, max_y), (max_x, min_y), (min_x, min_y)]
+        
+        # Muokataan koordinaatit array-muotoon
+        array = arcpy.Array([arcpy.Point(*coords) for coords in coordinates])
+        
+        # Luodaan väliaikainen polygon-objekti, jota käytetään valinnan tekemiseen
+        valitsija_polygon = arcpy.Polygon(array)
+        
+        # Valitaan ruututietokannasta ruudut, joita valitsija_polygon-objekti koskettaa
+        valittu_ruututietokanta = arcpy.management.SelectLayerByLocation(
+            ruututietokanta, 'INTERSECT', valitsija_polygon
+        )
+        
+        # Lasketaan minimi- ja maksimikoordinaatit valittu_ruututietokanta-tasolle
+        arcpy.management.CalculateGeometryAttributes(
+            valittu_ruututietokanta, 
+            [['rtk_min_x', 'EXTENT_MIN_X'], ['rtk_min_y', 'EXTENT_MIN_Y'], 
+             ['rtk_max_x', 'EXTENT_MAX_X'], ['rtk_max_y', 'EXTENT_MAX_Y']], 
+            'METERS'
+        )
+        
+        # Alustetaan muuttujat
+        rtk_min_x, rtk_min_y, rtk_max_x, rtk_max_y = None, None, None, None
+        
+        # Moduuli, joka palauttaa koko ruudukon minimi- ja maksimiarvot, kun parametriksi annetaan haluttu ruutuaineisto
+        def palauta_aariarvot(rtk_aineisto):
+            rtk_min_x2_list = []
+            rtk_min_y2_list = []
+            rtk_max_x2_list = []
+            rtk_max_y2_list = []
+            with arcpy.da.SearchCursor(rtk_aineisto, ['rtk_min_x', 'rtk_min_y', 'rtk_max_x', 'rtk_max_y']) as cursor:
+                for row in cursor:
+                    rtk_min_x2_list.append(row[0])
+                    rtk_min_y2_list.append(row[1])
+                    rtk_max_x2_list.append(row[2])
+                    rtk_max_y2_list.append(row[3])
+            return [
+                min(rtk_min_x2_list), min(rtk_min_y2_list), 
+                max(rtk_max_x2_list), max(rtk_max_y2_list)
+            ]
+        
+        # Haetaan edellä luodun moduulin avulla minimi- ja maksimikoordinaatit
+        rtk_min_x = palauta_aariarvot(valittu_ruututietokanta)[0]
+        rtk_min_y = palauta_aariarvot(valittu_ruututietokanta)[1]
+        rtk_max_x = palauta_aariarvot(valittu_ruututietokanta)[2]
+        rtk_max_y = palauta_aariarvot(valittu_ruututietokanta)[3]
+        
+        # Alla määritellään tarvittavat luvut ja parametrit, joiden avulla tehdään uusi oikean laajuinen ja kokoinen ruudukko
+        # Määritellään lähtöpisteen koordinaatit stringinä, jossa peräkkäin x ja y koordinaatit
+        lähtöpiste = str(rtk_min_x) + ' ' + str(rtk_min_y)
+        
+        # Välimuuttuja, jolla määritellään toinen piste y-akselin suunnan laskemiseksi
+        y_akselin_muutos_suunnan_laskemiseksi = rtk_min_y + float(ruutukoko)
+        
+        # Määritellään y-akselin koordinaatit stringinä, jossa peräkkäin x ja y koordinaatit
+        y_akselin_suunta = str(rtk_min_x) + ' ' + str(y_akselin_muutos_suunnan_laskemiseksi)
+        
+        # Selvitetään y-akselin pituus ja jaetaan se määritellyllä ruudun koolla, jotta saadaan y-akseliin tarvittavien ruutujen määrä. Tehdään laskut metreinä
+        y_akseli_kokonaispituus = rtk_max_y - rtk_min_y + int(ruutukoko)
+        y_akseli_jaettuna_ruuduilla = y_akseli_kokonaispituus / int(ruutukoko)
+        
+        # Selvitetään x-akselin pituus ja jaetaan se määritellyllä ruudun koolla, jotta saadaan x-akseliin tarvittavien ruutujen määrä
+        x_akseli_kokonaispituus = rtk_max_x - rtk_min_x + int(ruutukoko)
+        x_akseli_jaettuna_ruuduilla = x_akseli_kokonaispituus / int(ruutukoko)
+        
+        # Tehdään ruudukko annettujen parametrien perusteella
+        arcpy.CreateFishnet_management(
+            valmis_ruudukko, lähtöpiste, y_akselin_suunta, ruutukoko, ruutukoko,
+            str(int(y_akseli_jaettuna_ruuduilla)), str(int(x_akseli_jaettuna_ruuduilla)),
+            geometry_type='POLYGON'
+        )
+        
+        # Aineiston leikkaus
+        # arcpy.analysis.Clip(valmis_ruudukko, laajuus_polygon, valmis_ruudukko+'_leikattu')
+        trimmattu_ruututietokanta = arcpy.management.SelectLayerByLocation(
+            valmis_ruudukko, 'INTERSECT', laajuus_polygon
+        )
+        
+        # Tallennetaan valittu data tietokantaan ja luodaan siitä muuttja
+        lopullinen_ruudukko = arcpy.management.CopyFeatures(trimmattu_ruututietokanta, valmis_ruudukko+'_leikattu')
+
+        # Lisää lopullinen ruudukko näyttöön käyttämällä luotua muuttujaa
+        aprx = arcpy.mp.ArcGISProject('CURRENT') 
+        aprxMap = aprx.activeMap
+        aprxMap.addDataFromPath(lopullinen_ruudukko)
+
+    def postExecute(self, parameters):
+        '''This method takes place after outputs are processed and
+        added to the display.'''
+        return
