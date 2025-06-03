@@ -17,7 +17,7 @@ class Tool(object):
         # Parametrien määrittely
         params = [
             arcpy.Parameter(
-                displayName="Ruudukon laajuus",
+                displayName="Ruudukon laajuus (feature layer/shapefile, joka sisältää vain yhden polygonin)",
                 name="ruudukon_laajuus",
                 datatype="GPFeatureLayer",
                 parameterType="Required",
@@ -31,14 +31,14 @@ class Tool(object):
                 direction="Input"
             ),
             arcpy.Parameter(
-                displayName="Malliruudukko, jota käytetään luotavan ruudukon asemointiin",
+                displayName="Malliruudukko, jota käytetään luotavan ruudukon asemointiin (pitää olla vähintään Ruudukon laajuus-polygonin kokoinen)",
                 name="rtk_input_polygon",
                 datatype="GPFeatureLayer",
                 parameterType="Required",
                 direction="Input"
             ),
             arcpy.Parameter(
-                displayName="Tallennettava vektoritaso",
+                displayName="Tallennettava vektoritaso (työkalu tallentaa automaattisesti kaksi erilaista versiota vektoritasosta)",
                 name="output",
                 datatype="DEFeatureClass",
                 parameterType="Required",
